@@ -10,3 +10,4 @@ tensorboard
 scipy
 calflops
 transformers
+Pillow
