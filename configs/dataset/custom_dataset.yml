@@ -1,0 +1,41 @@
+task: detection
+
+evaluator:
+  type: CocoEvaluator
+  iou_types: ['bbox', ]
+
+# 根据标注类别表，共有14个预定义类别
+num_classes: 14  # car, truck, construction_truck, van, bus, bicycle, cyclist, tricycle, trolley, pedestrian, cone, barrier, animal, other
+remap_mscoco_category: False
+
+train_dataloader:
+  type: DataLoader
+  dataset:
+    type: CocoDetection
+    img_folder: dataset/data
+    ann_file: dataset/coco_format/instances_train.json
+    return_masks: False
+    transforms:
+      type: Compose
+      ops: ~
+  shuffle: True
+  num_workers: 4
+  drop_last: True
+  collate_fn:
+    type: BatchImageCollateFunction
+
+val_dataloader:
+  type: DataLoader
+  dataset:
+    type: CocoDetection
+    img_folder: dataset/data
+    ann_file: dataset/coco_format/instances_val.json  # 如果有验证集，请创建对应的标注文件
+    return_masks: False
+    transforms:
+      type: Compose
+      ops: ~
+  shuffle: False
+  num_workers: 4
+  drop_last: False
+  collate_fn:
+    type: BatchImageCollateFunction

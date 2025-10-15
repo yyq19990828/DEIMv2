@@ -1,10 +1,11 @@
-# 模型下载脚本使用说明
+# Scripts 使用说明
 
 ## 概述
 
-本目录包含两个下载脚本：
+本目录包含以下脚本：
 1. `download.sh` - 用于下载DINOv3预训练模型文件
 2. `download_deimv2_models.sh` - 用于下载DEIMv2预训练模型和日志文件
+3. `convert_dataset.sh` - 用于将自定义数据格式转换为COCO格式
 
 ## DINOv3 模型下载 (download.sh)
 
@@ -205,6 +206,146 @@ pip3 install gdown
 
 ---
 
+## 数据集格式转换 (convert_dataset.sh)
+
+这个脚本用于将自定义数据格式转换为COCO格式，支持14个预定义类别的目标检测数据集。
+
+### 系统要求
+
+- Linux/macOS/Windows (with WSL)
+- Python 3.x
+- Pillow (PIL) 库
+
+### 使用方法
+
+#### 1. 基本使用（默认参数）
+
+```bash
+./scripts/convert_dataset.sh
+```
+
+#### 2. 自定义参数
+
+```bash
+# 指定自定义路径
+./scripts/convert_dataset.sh -d /path/to/images -l /path/to/labels -o /path/to/output
+
+# 转换验证集
+./scripts/convert_dataset.sh -s val
+
+# 查看帮助信息
+./scripts/convert_dataset.sh --help
+```
+
+### 命令行选项
+
+| 选项 | 说明 | 默认值 |
+|------|------|--------|
+| `-d, --data-dir` | 图像数据目录 | `dataset/data` |
+| `-l, --label-dir` | 标注文件目录 | `dataset/label` |
+| `-o, --output-dir` | 输出目录 | `dataset/coco_format` |
+| `-s, --split-name` | 数据集分割名称 | `train` |
+| `-h, --help` | 显示帮助信息 | - |
+| `-v, --version` | 显示版本信息 | - |
+
+### 支持的数据格式
+
+#### 输入格式
+```
+dataset/
+├── data/           # 图像文件目录
+│   ├── 00000.jpg
+│   ├── 00001.jpg
+│   └── ...
+└── label/          # 标注文件目录
+    ├── 00000.json
+    ├── 00001.json
+    └── ...
+```
+
+#### 标注文件格式
+```json
+[
+    {
+        "id": "1",
+        "type": "car",
+        "box2d": [450.20944, 266.10209, 558.21807, 321.45953],
+        "occluded": 0,
+        "truncated": 0
+    }
+]
+```
+
+### 支持的类别（共14个）
+
+| ID | 英文名称 | 中文名称 | 说明 |
+|----|----------|----------|------|
+| 1 | car | 小汽车 | 双轴小型车辆，包括7座及以下的轿车、SUV、皮卡等 |
+| 2 | truck | 货车 | 大中型货车，包括厢式货车、栅式货车、半挂车等 |
+| 3 | construction_truck | 工程车辆 | 包括叉车、铲车、起重机、压路机等工程车辆 |
+| 4 | van | 厢式面包车 | 中型客运或货运面包车、救护车等 |
+| 5 | bus | 巴士 | 大型客运车辆，包括校巴、旅游巴、客运班车等 |
+| 6 | bicycle | 两轮车 | 没有人骑着的两轮车 |
+| 7 | cyclist | 两轮车骑行者 | 有人骑着的两轮车 |
+| 8 | tricycle | 三轮车、三轮车骑行者 | 包含三轮摩托车、三轮电动车、三轮自行车等 |
+| 9 | trolley | 手推车 | 包含手推车、婴儿车、轮椅 |
+| 10 | pedestrian | 行人 | 包含各种姿态的行人 |
+| 11 | cone | 锥形桶、柱形桶 | 施工、交通意外中用于隔离的锥形桶、柱形防撞桶等 |
+| 12 | barrier | 水马、栅栏 | 施工、交通意外中用于隔离的水马、栅栏等 |
+| 13 | animal | 小动物 | 包含猫、狗等小动物 |
+| 14 | other | 其他 | 车道上影响车辆正常驾驶的其他物体 |
+
+### 输出文件
+
+转换完成后会生成：
+1. `instances_{split_name}.json` - COCO格式标注文件
+2. `conversion_stats_{split_name}.json` - 转换统计信息
+
+### 功能特性
+
+- ✅ 支持14个预定义类别的自动映射
+- ✅ 边界框格式转换：`[xmin, ymin, xmax, ymax]` → `[x, y, width, height]`
+- ✅ 智能处理遮挡度和截断状态
+- ✅ 保留原始标注信息
+- ✅ 自动依赖检查和环境验证
+- ✅ 彩色输出和详细进度显示
+- ✅ 完整的错误处理和故障排除
+
+### 使用示例
+
+```bash
+# 转换训练集
+./scripts/convert_dataset.sh
+
+# 转换验证集
+./scripts/convert_dataset.sh -s val
+
+# 使用自定义路径
+./scripts/convert_dataset.sh \
+    -d /data/my_dataset/images \
+    -l /data/my_dataset/annotations \
+    -o /data/my_dataset/coco_format \
+    -s train
+```
+
+### 故障排除
+
+#### Python依赖缺失
+```bash
+pip3 install Pillow
+```
+
+#### 权限问题
+```bash
+chmod +x scripts/convert_dataset.sh
+```
+
+#### 路径问题
+确保在项目根目录运行脚本，并检查输入目录是否存在。
+
+---
+
 **注意：**
 - DINOv3下载链接包含时间戳和签名，可能会过期。如果链接失效，请获取新的下载链接。
 - DEIMv2模型文件较大，请确保有足够的磁盘空间和稳定的网络连接。
+- 数据集转换脚本会自动创建输出目录，请确保有足够的磁盘空间。
