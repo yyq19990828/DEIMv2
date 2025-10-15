@@ -5,7 +5,7 @@ evaluator:
   iou_types: ['bbox', ]
 
 # 根据标注类别表，共有14个预定义类别
-num_classes: 14  # car, truck, construction_truck, van, bus, bicycle, cyclist, tricycle, trolley, pedestrian, cone, barrier, animal, other
+num_classes: 15  # 14个实际类别 + 1个背景类别（适应COCO格式的1-based索引）
 remap_mscoco_category: False
 
 train_dataloader:
