@@ -195,61 +195,64 @@ class SimpleDatasetConverter:
             print(f"  {category['id']}: {category['name']}")
     
     def create_splits_and_save(self) -> None:
-        """创建数据集分割并保存（写死5000张验证集和5000张测试集）"""
+        """创建数据集分割并保存（复制5000张验证集和5000张测试集）"""
         total_images = len(self.coco_data["images"])
         print(f"总图像数量: {total_images}")
         
-        # 固定分割大小
+        # 固定复制大小
         val_size = 5000
         test_size = 5000
         
-        if total_images < val_size + test_size:
-            print(f"警告：总图像数量({total_images})小于所需的验证集({val_size})和测试集({test_size})大小")
-            # 按比例调整
-            ratio = total_images / (val_size + test_size)
-            val_size = int(val_size * ratio)
-            test_size = int(test_size * ratio)
-            print(f"调整后的验证集大小: {val_size}, 测试集大小: {test_size}")
+        if total_images < val_size:
+            print(f"警告：总图像数量({total_images})小于所需的验证集({val_size})大小")
+            val_size = total_images
+            print(f"调整后的验证集大小: {val_size}")
+            
+        if total_images < test_size:
+            print(f"警告：总图像数量({total_images})小于所需的测试集({test_size})大小")
+            test_size = total_images
+            print(f"调整后的测试集大小: {test_size}")
         
         # 创建图像ID列表并随机打乱
         image_ids = list(range(1, total_images + 1))
         random.shuffle(image_ids)
         
-        # 分割数据集
+        # 复制数据集（从训练集中复制）
         val_image_ids = set(image_ids[:val_size])
-        test_image_ids = set(image_ids[val_size:val_size + test_size])
-        train_image_ids = set(image_ids[val_size + test_size:])
+        test_image_ids = set(image_ids[:test_size])  # 注意：这里也是从开头开始，允许重叠
         
-        print(f"训练集: {len(train_image_ids)} 张图像")
-        print(f"验证集: {len(val_image_ids)} 张图像")
-        print(f"测试集: {len(test_image_ids)} 张图像")
+        print(f"训练集: {total_images} 张图像（全部数据）")
+        print(f"验证集: {len(val_image_ids)} 张图像（从训练集复制）")
+        print(f"测试集: {len(test_image_ids)} 张图像（从训练集复制）")
         
         # 创建分割后的数据集
         splits = {
-            "train": {"images": [], "annotations": []},
+            "train": {"images": self.coco_data["images"].copy(), "annotations": self.coco_data["annotations"].copy()},
             "val": {"images": [], "annotations": []},
             "test": {"images": [], "annotations": []}
         }
         
-        # 分配图像
+        # 复制验证集图像和标注
         for image in self.coco_data["images"]:
             image_id = image["id"]
-            if image_id in train_image_ids:
-                splits["train"]["images"].append(image)
-            elif image_id in val_image_ids:
-                splits["val"]["images"].append(image)
-            elif image_id in test_image_ids:
-                splits["test"]["images"].append(image)
+            if image_id in val_image_ids:
+                splits["val"]["images"].append(image.copy())
         
-        # 分配标注
         for annotation in self.coco_data["annotations"]:
             image_id = annotation["image_id"]
-            if image_id in train_image_ids:
-                splits["train"]["annotations"].append(annotation)
-            elif image_id in val_image_ids:
-                splits["val"]["annotations"].append(annotation)
-            elif image_id in test_image_ids:
-                splits["test"]["annotations"].append(annotation)
+            if image_id in val_image_ids:
+                splits["val"]["annotations"].append(annotation.copy())
+        
+        # 复制测试集图像和标注
+        for image in self.coco_data["images"]:
+            image_id = image["id"]
+            if image_id in test_image_ids:
+                splits["test"]["images"].append(image.copy())
+        
+        for annotation in self.coco_data["annotations"]:
+            image_id = annotation["image_id"]
+            if image_id in test_image_ids:
+                splits["test"]["annotations"].append(annotation.copy())
         
         # 保存所有分割
         for split in ["train", "val", "test"]:
