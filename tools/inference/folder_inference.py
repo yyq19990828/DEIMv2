@@ -75,8 +75,8 @@ def load_category_mapping(config_path):
     return category_mapping
 
 
-def process_image_folder(model, device, img_folder, image_files, category_mapping, 
-                         output_dir, size=(640, 640), conf_threshold=0.01):
+def process_image_folder(model, device, img_folder, image_files, category_mapping,
+                         output_dir, size=(640, 640), conf_threshold=0.01, batch_size=32):
     """处理图片文件夹并生成预测结果
     
     Args:
@@ -88,6 +88,7 @@ def process_image_folder(model, device, img_folder, image_files, category_mappin
         output_dir: 输出目录
         size: 输入图片尺寸
         conf_threshold: 置信度阈值
+        batch_size: 批量推理的批次大小
     """
     os.makedirs(output_dir, exist_ok=True)
     
@@ -96,75 +97,106 @@ def process_image_folder(model, device, img_folder, image_files, category_mappin
         T.ToTensor(),
     ])
     
-    print(f"Processing {len(image_files)} images from {img_folder}...")
+    print(f"Processing {len(image_files)} images from {img_folder} with batch_size={batch_size}...")
     
-    for img_filename in tqdm(image_files, desc="Inference"):
-        # 读取图片
-        img_path = os.path.join(img_folder, img_filename)
-        if not os.path.exists(img_path):
-            print(f"Warning: Image not found: {img_path}")
+    # 批量处理图片
+    num_batches = (len(image_files) + batch_size - 1) // batch_size
+    
+    for batch_idx in tqdm(range(num_batches), desc="Inference"):
+        start_idx = batch_idx * batch_size
+        end_idx = min(start_idx + batch_size, len(image_files))
+        batch_files = image_files[start_idx:end_idx]
+        
+        batch_images = []
+        batch_orig_sizes = []
+        valid_files = []
+        
+        # 读取并预处理批次中的所有图片
+        for img_filename in batch_files:
+            img_path = os.path.join(img_folder, img_filename)
+            if not os.path.exists(img_path):
+                print(f"Warning: Image not found: {img_path}")
+                continue
+            
+            try:
+                im_pil = Image.open(img_path).convert('RGB')
+                w, h = im_pil.size
+                
+                # 图片预处理
+                im_data = transforms(im_pil)
+                batch_images.append(im_data)
+                batch_orig_sizes.append([w, h])
+                valid_files.append(img_filename)
+            
+            except Exception as e:
+                print(f"Error loading {img_filename}: {e}")
+                # 如果加载出错,保存空结果
+                output_filename = os.path.splitext(img_filename)[0] + '.json'
+                output_path = os.path.join(output_dir, output_filename)
+                with open(output_path, 'w') as f:
+                    json.dump([], f)
+        
+        if not batch_images:
             continue
         
+        # 批量推理
         try:
-            im_pil = Image.open(img_path).convert('RGB')
-            w, h = im_pil.size
-            orig_size = torch.tensor([[w, h]]).to(device)
+            batch_images_tensor = torch.stack(batch_images).to(device)
+            batch_orig_sizes_tensor = torch.tensor(batch_orig_sizes).to(device)
             
-            # 图片预处理
-            im_data = transforms(im_pil).unsqueeze(0).to(device)
-            
-            # 推理
             with torch.no_grad():
-                output = model(im_data, orig_size)
+                output = model(batch_images_tensor, batch_orig_sizes_tensor)
                 labels, boxes, scores = output
             
-            # 过滤低置信度检测
-            labels = labels[0]
-            boxes = boxes[0]
-            scores = scores[0]
-            
-            mask = scores > conf_threshold
-            labels = labels[mask]
-            boxes = boxes[mask]
-            scores = scores[mask]
-            
-            # 构建结果
-            results = []
-            for label, box, score in zip(labels, boxes, scores):
-                label_id = label.item()
-                # 从类别映射中获取类别名称
-                if category_mapping:
-                    category_name = category_mapping.get(label_id, f"class_{label_id}")
-                else:
-                    category_name = f"class_{label_id}"
+            # 处理每张图片的结果
+            for idx, img_filename in enumerate(valid_files):
+                # 过滤低置信度检测
+                img_labels = labels[idx]
+                img_boxes = boxes[idx]
+                img_scores = scores[idx]
                 
-                result = {
-                    "type": category_name,
-                    "box2d": [
-                        round(box[0].item(), 3),
-                        round(box[1].item(), 3),
-                        round(box[2].item(), 3),
-                        round(box[3].item(), 3)
-                    ],
-                    "conf": round(score.item(), 2)
-                }
-                results.append(result)
-            
-            # 保存结果到JSON文件
-            # 使用图片文件名(不含扩展名)作为输出文件名
-            output_filename = os.path.splitext(img_filename)[0] + '.json'
-            output_path = os.path.join(output_dir, output_filename)
-            
-            with open(output_path, 'w') as f:
-                json.dump(results, f, indent=2)
+                mask = img_scores > conf_threshold
+                img_labels = img_labels[mask]
+                img_boxes = img_boxes[mask]
+                img_scores = img_scores[mask]
+                
+                # 构建结果
+                results = []
+                for label, box, score in zip(img_labels, img_boxes, img_scores):
+                    label_id = label.item()
+                    # 从类别映射中获取类别名称
+                    if category_mapping:
+                        category_name = category_mapping.get(label_id, f"class_{label_id}")
+                    else:
+                        category_name = f"class_{label_id}"
+                    
+                    result = {
+                        "type": category_name,
+                        "box2d": [
+                            round(box[0].item(), 3),
+                            round(box[1].item(), 3),
+                            round(box[2].item(), 3),
+                            round(box[3].item(), 3)
+                        ],
+                        "conf": round(score.item(), 2)
+                    }
+                    results.append(result)
+                
+                # 保存结果到JSON文件
+                output_filename = os.path.splitext(img_filename)[0] + '.json'
+                output_path = os.path.join(output_dir, output_filename)
+                
+                with open(output_path, 'w') as f:
+                    json.dump(results, f, indent=2)
         
         except Exception as e:
-            print(f"Error processing {img_filename}: {e}")
-            # 如果出错,保存空结果
-            output_filename = os.path.splitext(img_filename)[0] + '.json'
-            output_path = os.path.join(output_dir, output_filename)
-            with open(output_path, 'w') as f:
-                json.dump([], f)
+            print(f"Error processing batch {batch_idx}: {e}")
+            # 如果批次处理出错,为该批次的所有图片保存空结果
+            for img_filename in valid_files:
+                output_filename = os.path.splitext(img_filename)[0] + '.json'
+                output_path = os.path.join(output_dir, output_filename)
+                with open(output_path, 'w') as f:
+                    json.dump([], f)
     
     print(f"Inference complete. Results saved to: {output_dir}")
 
@@ -223,7 +255,7 @@ def main(args):
     print(f"Found {len(image_files)} images")
     
     # 如果指定了输出目录,使用指定的;否则使用默认的
-    output_dir = args.output if args.output else 'predictions'
+    output_dir = args.output if args.output else 'prediction'
     
     # 执行推理
     process_image_folder(
@@ -234,7 +266,8 @@ def main(args):
         category_mapping=category_mapping,
         output_dir=output_dir,
         size=tuple(img_size),
-        conf_threshold=args.conf_threshold
+        conf_threshold=args.conf_threshold,
+        batch_size=args.batch_size
     )
 
 
@@ -247,11 +280,13 @@ if __name__ == '__main__':
     parser.add_argument('-i', '--input', type=str, required=True,
                         help='Path to input image folder')
     parser.add_argument('-o', '--output', type=str, default=None,
-                        help='Output directory for predictions (default: predictions)')
+                        help='Output directory for predictions (default: prediction)')
     parser.add_argument('-d', '--device', type=str, default='cuda:0',
                         help='Device to use for inference')
     parser.add_argument('--conf-threshold', type=float, default=0.01,
                         help='Confidence threshold for detections')
+    parser.add_argument('--batch-size', type=int, default=32,
+                        help='Batch size for inference (default: 32)')
     
     args = parser.parse_args()
     main(args)
