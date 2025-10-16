@@ -145,7 +145,11 @@ class BaseSolver(object):
                     model = getattr(self, 'model', None)
                     if model is not None:
                         ema = dist_utils.de_parallel(v)
-                        model_state_dict = remove_module_prefix(model.state_dict())
+                        # 获取去并行化的模型以避免DDP同步问题
+                        de_parallel_model = dist_utils.de_parallel(model)
+                        # 使用no_grad避免不必要的计算
+                        with torch.no_grad():
+                            model_state_dict = remove_module_prefix(de_parallel_model.state_dict())
                         ema.load_state_dict({'module': model_state_dict})
                         print(f'Load {k}.state_dict from model.state_dict')
                 else:
@@ -182,6 +186,10 @@ class BaseSolver(object):
 
         # state['model'] = remove_module_prefix(state['model'])
         self.load_state_dict(state)
+        
+        # 在分布式训练中,加载完成后再次同步,确保所有进程都完成加载
+        if dist_utils.is_dist_available_and_initialized():
+            torch.distributed.barrier()
 
     def load_tuning_state(self, path: str):
         """Load model for tuning and adjust mismatched head parameters"""
@@ -225,6 +233,10 @@ class BaseSolver(object):
 
         module.load_state_dict(stat, strict=False)
         print(f'Load model.state_dict, {infos}')
+        
+        # 在分布式训练中,加载完成后同步
+        if dist_utils.is_dist_available_and_initialized():
+            torch.distributed.barrier()
 
     @staticmethod
     def _matched_state(state: Dict[str, torch.Tensor], params: Dict[str, torch.Tensor]):
