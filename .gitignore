@@ -3,6 +3,7 @@ outputs/
 ckpts/
 testenv/
 backup
+dataset/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
