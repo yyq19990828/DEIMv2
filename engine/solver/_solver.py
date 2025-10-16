@@ -153,20 +153,60 @@ class BaseSolver(object):
 
     def load_resume_state(self, path: str):
         """Load resume"""
+        import os
+        
         if path.startswith('http'):
             state = torch.hub.load_state_dict_from_url(path, map_location='cpu')
         else:
-            state = torch.load(path, map_location='cpu')
+            # 在分布式训练中,确保所有进程同步
+            if dist_utils.is_dist_available_and_initialized():
+                # 确保文件存在且完整(只在rank 0检查)
+                if dist_utils.get_rank() == 0:
+                    if not os.path.exists(path):
+                        raise FileNotFoundError(f"Checkpoint file not found: {path}")
+                    # 检查文件大小,确保不是空文件
+                    if os.path.getsize(path) == 0:
+                        raise RuntimeError(f"Checkpoint file is empty: {path}")
+                
+                # 同步所有进程,确保rank 0完成文件检查和保存
+                torch.distributed.barrier()
+            
+            # 加载checkpoint,添加错误处理
+            try:
+                state = torch.load(path, map_location='cpu')
+            except Exception as e:
+                print(f"Error loading checkpoint from {path}: {e}")
+                if dist_utils.is_dist_available_and_initialized():
+                    print(f"Rank {dist_utils.get_rank()} failed to load checkpoint")
+                raise
 
         # state['model'] = remove_module_prefix(state['model'])
         self.load_state_dict(state)
 
     def load_tuning_state(self, path: str):
         """Load model for tuning and adjust mismatched head parameters"""
+        import os
+        
         if path.startswith('http'):
             state = torch.hub.load_state_dict_from_url(path, map_location='cpu')
         else:
-            state = torch.load(path, map_location='cpu')
+            # 在分布式训练中,确保所有进程同步
+            if dist_utils.is_dist_available_and_initialized():
+                if dist_utils.get_rank() == 0:
+                    if not os.path.exists(path):
+                        raise FileNotFoundError(f"Checkpoint file not found: {path}")
+                    if os.path.getsize(path) == 0:
+                        raise RuntimeError(f"Checkpoint file is empty: {path}")
+                
+                torch.distributed.barrier()
+            
+            try:
+                state = torch.load(path, map_location='cpu')
+            except Exception as e:
+                print(f"Error loading checkpoint from {path}: {e}")
+                if dist_utils.is_dist_available_and_initialized():
+                    print(f"Rank {dist_utils.get_rank()} failed to load checkpoint")
+                raise
 
         module = dist_utils.de_parallel(self.model)
 
