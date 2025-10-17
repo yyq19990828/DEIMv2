@@ -15,10 +15,36 @@ from tqdm import tqdm
 import torch
 import torch.nn as nn
 import torchvision.transforms as T
-from PIL import Image
+from PIL import Image, ImageDraw
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 from engine.core import YAMLConfig
+
+
+def draw(images, labels, boxes, scores, thrh=0.4, save_path='result.jpg'):
+    """绘制检测结果并保存
+    
+    Args:
+        images: PIL图像列表
+        labels: 标签张量
+        boxes: 边界框张量
+        scores: 置信度张量
+        thrh: 置信度阈值
+        save_path: 保存路径
+    """
+    for i, im in enumerate(images):
+        draw_obj = ImageDraw.Draw(im)
+
+        scr = scores[i]
+        lab = labels[i][scr > thrh]
+        box = boxes[i][scr > thrh]
+        scrs = scr[scr > thrh]
+
+        for j, b in enumerate(box):
+            draw_obj.rectangle(list(b), outline='red', width=2)
+            draw_obj.text((b[0], b[1]), text=f"{lab[j].item()} {round(scrs[j].item(), 2)}", fill='blue')
+
+        im.save(save_path)
 
 
 def get_image_files(img_folder, extensions=('.jpg', '.jpeg', '.png', '.bmp')):
@@ -76,7 +102,8 @@ def load_category_mapping(config_path):
 
 
 def process_image_folder(model, device, img_folder, image_files, category_mapping,
-                         output_dir, size=(640, 640), conf_threshold=0.01, batch_size=32):
+                         output_dir, size=(640, 640), conf_threshold=0.01, batch_size=32,
+                         save_vis=False, vis_dir=None, vis_threshold=0.4, max_vis_images=100):
     """处理图片文件夹并生成预测结果
     
     Args:
@@ -89,8 +116,16 @@ def process_image_folder(model, device, img_folder, image_files, category_mappin
         size: 输入图片尺寸
         conf_threshold: 置信度阈值
         batch_size: 批量推理的批次大小
+        save_vis: 是否保存可视化结果
+        vis_dir: 可视化结果保存目录
+        vis_threshold: 可视化的置信度阈值
+        max_vis_images: 最大可视化图像数量
     """
     os.makedirs(output_dir, exist_ok=True)
+    
+    if save_vis and vis_dir:
+        os.makedirs(vis_dir, exist_ok=True)
+        vis_count = 0
     
     transforms = T.Compose([
         T.Resize(size),
@@ -150,6 +185,15 @@ def process_image_folder(model, device, img_folder, image_files, category_mappin
             
             # 处理每张图片的结果
             for idx, img_filename in enumerate(valid_files):
+                # 保存可视化结果
+                if save_vis and vis_dir and vis_count < max_vis_images:
+                    img_path = os.path.join(img_folder, img_filename)
+                    im_pil = Image.open(img_path).convert('RGB')
+                    vis_save_path = os.path.join(vis_dir, f"vis_{img_filename}")
+                    draw([im_pil], labels[idx:idx+1], boxes[idx:idx+1], scores[idx:idx+1],
+                         thrh=vis_threshold, save_path=vis_save_path)
+                    vis_count += 1
+                
                 # 过滤低置信度检测
                 img_labels = labels[idx]
                 img_boxes = boxes[idx]
@@ -199,6 +243,8 @@ def process_image_folder(model, device, img_folder, image_files, category_mappin
                     json.dump([], f)
     
     print(f"Inference complete. Results saved to: {output_dir}")
+    if save_vis and vis_dir:
+        print(f"Visualization complete. {vis_count} images saved to: {vis_dir}")
 
 
 def main(args):
@@ -267,7 +313,11 @@ def main(args):
         output_dir=output_dir,
         size=tuple(img_size),
         conf_threshold=args.conf_threshold,
-        batch_size=args.batch_size
+        batch_size=args.batch_size,
+        save_vis=args.save_vis,
+        vis_dir=args.vis_dir,
+        vis_threshold=args.vis_threshold,
+        max_vis_images=args.max_vis_images
     )
 
 
@@ -287,6 +337,14 @@ if __name__ == '__main__':
                         help='Confidence threshold for detections')
     parser.add_argument('--batch-size', type=int, default=32,
                         help='Batch size for inference (default: 32)')
+    parser.add_argument('--save-vis', action='store_true',
+                        help='Save visualization results')
+    parser.add_argument('--vis-dir', type=str, default='visualization',
+                        help='Directory to save visualization results (default: visualization)')
+    parser.add_argument('--vis-threshold', type=float, default=0.4,
+                        help='Confidence threshold for visualization (default: 0.4)')
+    parser.add_argument('--max-vis-images', type=int, default=100,
+                        help='Maximum number of images to visualize (default: 100)')
     
     args = parser.parse_args()
     main(args)
