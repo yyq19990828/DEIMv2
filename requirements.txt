@@ -11,3 +11,4 @@ scipy
 calflops
 transformers
 Pillow
+opencv-python
