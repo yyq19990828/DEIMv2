@@ -103,7 +103,8 @@ def load_category_mapping(config_path):
 
 def process_image_folder(model, device, img_folder, image_files, category_mapping,
                          output_dir, size=(640, 640), conf_threshold=0.01, batch_size=32,
-                         save_vis=False, vis_dir=None, vis_threshold=0.4, max_vis_images=100):
+                         save_vis=False, vis_dir=None, vis_threshold=0.4, max_vis_images=100,
+                         vit_backbone=False):
     """处理图片文件夹并生成预测结果
     
     Args:
@@ -120,6 +121,7 @@ def process_image_folder(model, device, img_folder, image_files, category_mappin
         vis_dir: 可视化结果保存目录
         vis_threshold: 可视化的置信度阈值
         max_vis_images: 最大可视化图像数量
+        vit_backbone: 是否使用VIT骨干网络（DINOv3等）
     """
     os.makedirs(output_dir, exist_ok=True)
     
@@ -130,6 +132,8 @@ def process_image_folder(model, device, img_folder, image_files, category_mappin
     transforms = T.Compose([
         T.Resize(size),
         T.ToTensor(),
+        T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+                if vit_backbone else T.Lambda(lambda x: x)
     ])
     
     print(f"Processing {len(image_files)} images from {img_folder} with batch_size={batch_size}...")
@@ -284,6 +288,7 @@ def main(args):
     model.eval()
     
     img_size = cfg.yaml_cfg.get("eval_spatial_size", [640, 640])
+    vit_backbone = cfg.yaml_cfg.get('DINOv3STAs', False)
     
     # 加载类别映射
     category_mapping = load_category_mapping(args.config)
@@ -317,7 +322,8 @@ def main(args):
         save_vis=args.save_vis,
         vis_dir=args.vis_dir,
         vis_threshold=args.vis_threshold,
-        max_vis_images=args.max_vis_images
+        max_vis_images=args.max_vis_images,
+        vit_backbone=vit_backbone
     )
 
 
